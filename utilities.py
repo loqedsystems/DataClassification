@@ -101,18 +101,38 @@ def classify_streaming_apps(title, domain, url):
         return classification, subclassification
     return None, None
 
+def classify_shopping_sites(title, domain, url):
+    """
+    Classifica atividades relacionadas a sites de compras.
+    """
+    shopping_sites = ['shopee', 'aliexpress', 'mercado livre', 'olx', 'amazon']
+    shopping_domains = ['shopee.com', 'aliexpress.com', 'mercadolivre.com', 'olx.com', 'amazon.com']
+
+    if any(site in title for site in shopping_sites) or \
+       any(site in domain for site in shopping_domains) or \
+       any(site in url for site in shopping_domains):
+        classification = 'Site de Compras'
+        if 'shopee' in title or 'shopee.com' in domain or 'shopee.com' in url:
+            subclassification = 'Shopee'
+        elif 'aliexpress' in title or 'aliexpress.com' in domain or 'aliexpress.com' in url:
+            subclassification = 'AliExpress'
+        elif 'mercado livre' in title or 'mercadolivre.com' in domain or 'mercadolivre.com' in url:
+            subclassification = 'Mercado Livre'
+        elif 'olx' in title or 'olx.com' in domain or 'olx.com' in url:
+            subclassification = 'OLX'
+        elif 'amazon' in title or 'amazon.com' in domain or 'amazon.com' in url:
+            subclassification = 'Amazon'
+        else:
+            subclassification = None
+        return classification, subclassification
+    return None, None
 
 def classify_office_apps(title, domain, url, process):
     """
     Classifica atividades relacionadas a aplicativos de escritório.
     """
-    # Normaliza o processo
     process = normalize_process(process)
-    
-    print(f"Processo normalizado: {process}")
-    print(f"Título recebido: {title}")
-    print(f"URL recebido: {url}")
-    
+
     office_apps_processes = {
         'winwordexe': 'Microsoft Word',
         'excelexe': 'Microsoft Excel',
@@ -120,9 +140,7 @@ def classify_office_apps(title, domain, url, process):
         'outlookexe': 'Microsoft Outlook',
         'onenoteexe': 'OneNote',
         'msteamsexe': 'Microsoft Teams',
-        'powerpntexe': 'Microsoft Power Point',
         'zoomexe': 'Zoom'
-        
     }
 
     office_apps_titles = {
@@ -150,45 +168,30 @@ def classify_office_apps(title, domain, url, process):
         'teams.microsoft.com': 'Microsoft Teams'
     }
 
-    # Verifica pelo nome do processo (normalizado)
     if process in office_apps_processes:
-        print(f"Classificado com base no processo: {process}")
         return 'Aplicativo de Escritório', office_apps_processes[process]
 
-    # Verifica nos títulos
     for app_title, app_name in office_apps_titles.items():
         if app_title in title:
-            print(f"Classificado com base no título: {title}")
             return 'Aplicativo de Escritório', app_name
 
-    # Verifica nos URLs
     for app_url, app_name in office_apps_urls.items():
         if app_url in url:
-            print(f"Classificado com base no URL: {url}")
             return 'Aplicativo de Escritório', app_name
 
-    print("Não foi possível classificar este dado.")
     return None, None
-
-
-
-
-
 
 def classify_internal_systems(process, title):
     """
     Classifica atividades relacionadas a sistemas internos.
     """
-    internal_systems_processes = ['mstsc.exe']  
+    internal_systems_processes = ['mstsc.exe']
     internal_systems_titles = ['rm']
 
-    # Verifica se ambos o processo e o título correspondem
     if process in internal_systems_processes and any(term in title for term in internal_systems_titles):
         return 'Sistema Interno', 'RM'
 
     return None, None
-
-
 
 def classify_cerebro(title, domain, url):
     """
@@ -210,7 +213,7 @@ def classify_activity(row):
     """
     Classifica a atividade do usuário com base no título da janela, nome do processo, domínio e URL.
     """
-    process = str(row['ProcessName']) if pd.notna(row['ProcessName']) else ''  # Não normalizar o processo
+    process = str(row['ProcessName']) if pd.notna(row['ProcessName']) else ''
     title = normalize_text(str(row['WindowTitle'])) if pd.notna(row['WindowTitle']) else ''
     domain = normalize_text(str(row['Domain'])) if pd.notna(row['Domain']) else ''
     url = normalize_text(str(row['URL_Name'])) if pd.notna(row['URL_Name']) else ''
@@ -228,8 +231,13 @@ def classify_activity(row):
         row['SubClassificação'] = subclassification
         return row
 
-    # Chamada correta para `classify_office_apps`
     classification, subclassification = classify_office_apps(title, domain, url, process)
+    if classification:
+        row['Classificação'] = classification
+        row['SubClassificação'] = subclassification
+        return row
+
+    classification, subclassification = classify_shopping_sites(title, domain, url)  # Nova categoria
     if classification:
         row['Classificação'] = classification
         row['SubClassificação'] = subclassification
@@ -246,19 +254,13 @@ def classify_activity(row):
         row['Classificação'] = classification
         row['SubClassificação'] = subclassification
         return row
-    
+
     classification, subclassification = classify_internal_systems(process, title)
     if classification:
         row['Classificação'] = classification
         row['SubClassificação'] = subclassification
         return row
 
-    # Se não se encaixar em nenhuma das categorias
-    row['Classificação'] = 'Desconhecido'
+    row['Classificação'] = 'Outros'
     row['SubClassificação'] = None
     return row
-
-
-
-
-

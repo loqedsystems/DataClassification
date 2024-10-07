@@ -1,6 +1,9 @@
 import re
 import pandas as pd
 import unicodedata
+import datetime
+
+
 
 def remove_accents(text):
     """
@@ -208,6 +211,13 @@ def classify_pdf_viewer(title, url, process):
     if 'pdf' in title or '.pdf' in url or 'pdf' in process:
         return 'PDF Viewer', 'PDF'
     return None, None
+
+def get_day_of_year(date_str):
+    """
+    Converte uma string de data (YYYY-MM-DD) para o dia do ano.
+    """
+    date = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+    return date.timetuple().tm_yday
 
 def classify_activity(row):
     """

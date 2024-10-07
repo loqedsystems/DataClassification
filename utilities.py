@@ -36,10 +36,14 @@ def normalize_process(process):
 
 def classify_social_networks(title, domain, url):
     """
-    Classifica atividades relacionadas a redes sociais.
+    Classifica atividades relacionadas a redes sociais, com WhatsApp separado.
     """
-    social_networks = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok', 'snapchat', 'reddit', 'pinterest', 'tumblr', 'weibo', 'whatsapp', 'wechat']
-    social_domains = ['facebook.com', 'instagram.com', 'twitter.com', 'linkedin.com', 'tiktok.com', 'snapchat.com', 'reddit.com', 'pinterest.com', 'tumblr.com', 'weibo.com', 'whatsapp.com', 'web.whatsapp.com', 'wechat.com']
+    social_networks = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok', 'snapchat', 'reddit', 'pinterest', 'tumblr', 'weibo']
+    social_domains = ['facebook.com', 'instagram.com', 'twitter.com', 'linkedin.com', 'tiktok.com', 'snapchat.com', 'reddit.com', 'pinterest.com', 'tumblr.com', 'weibo.com']
+
+    # Classificação separada para WhatsApp
+    if 'whatsapp' in title or 'whatsapp.com' in domain or 'web.whatsapp.com' in url:
+        return 'WhatsApp', 'WhatsApp'
 
     if any(network in title for network in social_networks) or \
        any(network in domain for network in social_domains) or \
@@ -65,10 +69,6 @@ def classify_social_networks(title, domain, url):
             subclassification = 'Tumblr'
         elif 'weibo' in title or 'weibo.com' in domain or 'weibo.com' in url:
             subclassification = 'Weibo'
-        elif 'whatsapp' in title or 'whatsapp.com' in domain or 'web.whatsapp.com' in url:
-            subclassification = 'WhatsApp'
-        elif 'wechat' in title or 'wechat.com' in domain or 'wechat.com' in url:
-            subclassification = 'WeChat'
         else:
             subclassification = None
         return classification, subclassification

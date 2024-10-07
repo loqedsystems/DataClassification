@@ -1,7 +1,6 @@
-
 import pandas as pd
 from database_config import get_database_engine
-from utilities import convert_seconds_to_hhmmss, classify_activity
+from utilities import convert_seconds_to_hhmmss, classify_activity, get_day_of_year  # Importar a função de utilidade
 import re
 import time
 from sqlalchemy.exc import OperationalError
@@ -9,8 +8,6 @@ from dotenv import load_dotenv
 import os
 from openpyxl import Workbook
 from openpyxl.utils.exceptions import IllegalCharacterError
-
-
 
 def execute_query_with_retry(engine, query, retries=3, delay=5):
     """
@@ -102,7 +99,6 @@ def save_to_excel(data, filename='dados_classificados.xlsx', max_rows_per_sheet=
         writer.close()  # Corrigido para 'close'
         print(f"Exportação para Excel em múltiplas planilhas concluída! Arquivo salvo como {filename}")
 
-
 def save_to_csv(data, filename='dados_classificados.csv'):
     """
     Salva o DataFrame processado em um arquivo CSV (.csv).
@@ -112,8 +108,202 @@ def save_to_csv(data, filename='dados_classificados.csv'):
 
 load_dotenv()
 
+def build_query(start_date=None, end_date=None):
+    """
+    Constrói a consulta SQL com base no intervalo de datas fornecido pelo usuário.
+    Se datas não forem fornecidas, todos os dados serão retornados.
+    """
+    # Converter as datas para o dia do ano (PartitionID)
+    start_partition = get_day_of_year(start_date) if start_date else None
+    end_partition = get_day_of_year(end_date) if end_date else None
+
+    # Iniciar a query base
+    query = """
+    WITH CTE_ProcessDetails AS (
+        SELECT 
+            e.DictionaryId,
+            f.ProcessName,
+            e.MD5_Checksum
+        FROM [dbo].[utWin_ProcessDic] e
+        LEFT JOIN [dbo].[utWin_ProcessNameDic] f ON f.[DictionaryId] = e.[ProcessNameId]
+    ),
+    CTE_ComputerDetails AS (
+        SELECT 
+            cbu.ComputerId as Id,
+            cbu.OrganizationId as OrgId,
+            o.[Name] AS Host,
+            c.MachineName AS ClientMachineName,
+            c.TcpAddress AS ClientTcpAddress,
+            s.MachineName AS ServerMachineName,
+            s.TcpAddress AS ServerTcpAddress
+        FROM 
+            dbo.[utWin_ComputerByUnit] cbu
+        LEFT JOIN 
+            dbo.[ut_Organization] o ON cbu.[OrganizationId] = o.[Id]
+        LEFT JOIN 
+            utWinClient_TCPAddress c ON cbu.ComputerId = c.ID
+        LEFT JOIN 
+            utWinserver_TCPAddress s ON cbu.ComputerId = s.ID
+        WHERE 
+            cbu.[Type] = 1 
+            AND ComputerID IN (
+                SELECT DISTINCT [ComputerId] 
+                FROM [dbo].[utWin_ComputerByUnit] 
+                WHERE [OrganizationId] IN (77, 78, 98, 143, 185, 186, 190) 
+                AND Type = 1
+            )
+    ),
+    CTE_UserWebAppActivity AS (
+        SELECT 
+            u.ComputerId,
+            u.UserId,
+            u.ProcessId,
+            u.[Domain],
+            u.[URL],
+            u.[WindowTitle],
+            u.[UTCActualSliceId],
+            u.[ActivityTime],
+            u.[IsPublicIp],
+            u.[IsConnect],
+            u.[PartitionID],
+            p.UserName,
+            p.DomainName
+        FROM utWinClient_UserWebActivity u
+        LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
+        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
+    """
+
+    # Adicionar filtros de PartitionID se as datas forem fornecidas
+    if start_partition and end_partition:
+        query += f" AND (u.[PartitionID] >= {start_partition} AND u.[PartitionID] <= {end_partition})"
+
+    # Continuar a consulta com UNION
+    query += """
+        UNION ALL
+
+        SELECT  
+            u.ComputerId,
+            u.UserId,
+            u.ProcessId,
+            SPACE(0) AS [Domain],
+            SPACE(0) AS [URL],
+            u.[WindowTitle],
+            u.[UTCActualSliceId],
+            u.ActiveTime AS [ActivityTime],
+            0 AS [IsPublicIp],
+            u.[IsConnect],
+            u.[PartitionID],
+            p.UserName,
+            p.DomainName
+        FROM utWinClient_UserAppActivity u
+        LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
+        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
+    """
+
+    # Adicionar novamente filtros de PartitionID se as datas forem fornecidas
+    if start_partition and end_partition:
+        query += f" AND (u.[PartitionID] >= {start_partition} AND u.[PartitionID] <= {end_partition})"
+
+    # Fechar a query com a parte final da seleção e junções
+    query += """
+    ),
+    CTE_ServerWebAppActivity AS (
+        SELECT  
+            u.ComputerId,
+            u.UserId,
+            u.ProcessId,
+            u.[Domain],
+            u.[URL],
+            u.[WindowTitle],
+            u.[UTCActualSliceId],
+            u.[ActivityTime],
+            u.[IsPublicIp],
+            u.[IsConnect],
+            u.[PartitionID],
+            p.UserName,
+            p.DomainName
+        FROM utWinServer_UserWebActivity u
+        LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
+        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
+
+        UNION ALL
+
+        SELECT  
+            u.ComputerId,
+            u.UserId,
+            u.ProcessId,
+            SPACE(0) AS [Domain],
+            SPACE(0) AS [URL],
+            u.[WindowTitle],
+            u.[UTCActualSliceId],
+            u.ActiveTime AS [ActivityTime],
+            0 AS [IsPublicIp],
+            u.[IsConnect],
+            u.[PartitionID],
+            p.UserName,
+            p.DomainName
+        FROM utWinServer_UserAppActivity u
+        LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
+        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
+    )
+
+    SELECT
+        data.ComputerId,
+        cd.[Host] AS OrganizationId,
+        COALESCE(cd.ClientMachineName, cd.ServerMachineName) AS [MachineName],
+        COALESCE(cd.ClientTcpAddress, cd.ServerTcpAddress) AS [IpAddress],
+        cd.[Host] AS HostName,
+        (CASE WHEN LEN(p.UserName) = 0 THEN SPACE(0) ELSE p.[DomainName] + CHAR(92) + p.UserName END) AS [UserName],
+        ([dbo].[uf_GetDateByUTCSliceId]([UTCActualSliceId], 1, 0)) AS [Date],
+        pd.[ProcessName],
+        [Domain],
+        [URL] AS [URL_Name],
+        [WindowTitle],
+        [UTCActualSliceId],
+        [ActivityTime],
+        [IsConnect]
+    FROM (
+        SELECT * FROM CTE_UserWebAppActivity
+        UNION ALL
+        SELECT * FROM CTE_ServerWebAppActivity
+    ) AS data
+    JOIN CTE_ComputerDetails cd ON data.ComputerId = cd.Id
+    JOIN CTE_ProcessDetails pd ON data.ProcessId = pd.DictionaryId
+    LEFT JOIN [dbo].[utWin_UserNameDic] p ON p.DictionaryId = data.UserId;
+    """
+
+    return query
+
+def filter_by_user(data, usernames):
+    """
+    Filtra o DataFrame para incluir apenas as linhas onde o UserName corresponde aos usernames fornecidos.
+    Considera o formato 'NOME_DA_MAQUINA\\user_name' e faz o filtro somente pela parte do 'user_name'.
+    Aceita múltiplos usernames separados por vírgula.
+    """
+    # Limpar e separar os usernames por vírgula, se múltiplos forem fornecidos
+    if isinstance(usernames, str):
+        usernames = [user.strip() for user in usernames.split(",")]
+    
+    # Separar o 'UserName' no DataFrame após a barra invertida (caso exista)
+    data['UserName'] = data['UserName'].apply(lambda x: x.split("\\")[-1].strip() if "\\" in x else x.strip())
+
+    # Filtrar pelo nome de usuário na lista
+    if usernames:
+        filtered_data = data[data['UserName'].isin(usernames)]
+    else:
+        filtered_data = data  # Se não houver username, retornar todos os dados
+
+    return filtered_data
+
+
 if __name__ == "__main__":
+    # Solicitar nome(s) do(s) usuário(s) e intervalo de datas via input
+    usernames = input("Digite o(s) nome(s) do(s) usuário(s) (separados por vírgula, ou deixe vazio para todos): ")
+    start_date = input("Digite a data inicial (YYYY-MM-DD, ou deixe vazio para todas): ")
+    end_date = input("Digite a data final (YYYY-MM-DD, ou deixe vazio para todas): ")
+
     # Configurações de conexão para SQL Server
+    load_dotenv()
     db_host = os.getenv('DB_HOST')
     db_name = os.getenv('DB_NAME')
     db_user = os.getenv('DB_USER')
@@ -122,146 +312,17 @@ if __name__ == "__main__":
     # Obter engine de conexão
     engine = get_database_engine(db_host, db_name, db_user, db_password)
 
-    # Consulta SQL
-    query = """
- WITH CTE_ComputerDetails AS (
-    SELECT 
-        cbu.ComputerId as Id,
-        cbu.OrganizationId as OrgId,
-        o.[Name] AS Host,
-        c.MachineName AS ClientMachineName,
-        c.TcpAddress AS ClientTcpAddress,
-        s.MachineName AS ServerMachineName,
-        s.TcpAddress AS ServerTcpAddress
-    FROM 
-        dbo.[utWin_ComputerByUnit] cbu
-    LEFT JOIN 
-        dbo.[ut_Organization] o ON cbu.[OrganizationId] = o.[Id]
-    LEFT JOIN 
-        utWinClient_TCPAddress c ON cbu.ComputerId = c.ID
-    LEFT JOIN 
-        utWinserver_TCPAddress s ON cbu.ComputerId = s.ID
-    WHERE 
-        cbu.[Type] = 1 
-        AND ComputerID IN (
-            SELECT DISTINCT [ComputerId] 
-            FROM [dbo].[utWin_ComputerByUnit] 
-            WHERE [OrganizationId] IN (77, 78, 98, 143, 185, 186, 190) 
-            AND Type = 1
-        )
-)
-
-SELECT
-    data.ComputerId,
-    cd.[Host] AS OrganizationId,
-    COALESCE(cd.ClientMachineName, cd.ServerMachineName) AS [MachineName],
-    COALESCE(cd.ClientTcpAddress, cd.ServerTcpAddress) AS [TcpAddress],
-    cd.[Host] AS HostName,
-    (CASE WHEN LEN(p.UserName) = 0 THEN '' ELSE p.[DomainName] + CHAR(92) + p.UserName END) AS [UserName],
-    ([dbo].[uf_GetDateByUTCSliceId]([UTCActualSliceId], 1, 0)) AS [Date],
-    d.[ProcessName],
-    [Domain],
-    [URL] AS [URL_Name],
-    [WindowTitle],
-    [UTCActualSliceId],
-    [ActivityTime],
-    [IsConnect]
-FROM 
-    (
-        SELECT * 
-        FROM (
-            SELECT 
-                ComputerId,
-                UserId,
-                ProcessId,
-                [Domain],
-                [URL],
-                [WindowTitle],
-                [UTCActualSliceId],
-                [ActivityTime],
-                [IsPublicIp],
-                [IsConnect],   
-                [PartitionID]
-            FROM utWinClient_UserWebActivity
-            WHERE UTCActualSliceId BETWEEN 28663380 AND 28771379  
-            AND ([PartitionID] >= 183 AND [PartitionID] <= 257)
-            
-            UNION 
-            
-            SELECT  
-                ComputerId,
-                UserId,
-                ProcessId,
-                SPACE(0) AS [Domain],
-                SPACE(0) AS [URL],
-                [WindowTitle],
-                [UTCActualSliceId],
-                ActiveTime AS [ActivityTime],
-                0 AS [IsPublicIp],
-                [IsConnect],   
-                [PartitionID]
-            FROM utWinClient_UserAppActivity
-            WHERE UTCActualSliceId BETWEEN 28663380 AND 28771379  
-            AND ([PartitionID] >= 183 AND [PartitionID] <= 257)
-        ) cli
-
-        UNION ALL
-
-        SELECT * 
-        FROM (
-            SELECT 
-                ComputerId,
-                UserId,
-                ProcessId,
-                [Domain],
-                [URL],
-                [WindowTitle],
-                [UTCActualSliceId],
-                [ActivityTime],
-                [IsPublicIp],
-                [IsConnect],   
-                [PartitionID]
-            FROM utWinServer_UserWebActivity
-            WHERE UTCActualSliceId BETWEEN 28663380 AND 28771379  
-            AND ([PartitionID] >= 183 AND [PartitionID] <= 257)
-            
-            UNION 
-            
-            SELECT  
-                ComputerId,
-                UserId,
-                ProcessId,
-                SPACE(0) AS [Domain],
-                SPACE(0) AS [URL],
-                [WindowTitle],
-                [UTCActualSliceId],
-                ActiveTime AS [ActivityTime],
-                0 AS [IsPublicIp],
-                [IsConnect],   
-                [PartitionID]
-            FROM utWinServer_UserAppActivity
-            WHERE UTCActualSliceId BETWEEN 28663380 AND 28771379  
-            AND ([PartitionID] >= 183 AND [PartitionID] <= 257)
-        ) srv
-    ) data 
-JOIN CTE_ComputerDetails cd ON data.ComputerId = cd.Id
-LEFT JOIN [dbo].[utWin_ProcessDic] c ON c.DictionaryId = data.ProcessId
-LEFT JOIN [dbo].[utWin_ProcessNameDic] d ON d.DictionaryId = c.ProcessNameId
-LEFT JOIN [dbo].[utWin_UserNameDic] p ON p.[DictionaryId] = data.UserId;
-
-
-
-
-
-
-
-    """
-
-
-    # Executar a consulta com retry
+    # Construir e executar a consulta com base no intervalo de datas
+    query = build_query(start_date, end_date)
     data = execute_query_with_retry(engine, query)
-    
-    # Processar e salvar os dados
-    processed_data = process_data(data)
-    save_to_excel(processed_data)
-    save_to_csv(processed_data)
+
+    # Aplicar o filtro de username(s) no Python após a consulta SQL
+    filtered_data = filter_by_user(data, usernames)
+
+    # Processar os dados
+    processed_data = process_data(filtered_data)
+
+    # Salvar os dados em arquivos Excel e CSV
+    save_to_excel(processed_data, filename='resultado_dados_classificados.xlsx')
+    save_to_csv(processed_data, filename='resultado_dados_classificados.csv')
+

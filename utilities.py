@@ -41,13 +41,19 @@ def classify_social_networks(title, domain, url):
     social_networks = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok', 'snapchat', 'reddit', 'pinterest', 'tumblr', 'weibo']
     social_domains = ['facebook.com', 'instagram.com', 'twitter.com', 'linkedin.com', 'tiktok.com', 'snapchat.com', 'reddit.com', 'pinterest.com', 'tumblr.com', 'weibo.com']
 
+    # Normalizando os textos antes da classificação
+    title = normalize_text(title)
+    domain = normalize_text(domain)
+    url = normalize_text(url)
+
     # Classificação separada para WhatsApp
     if 'whatsapp' in title or 'whatsapp.com' in domain or 'web.whatsapp.com' in url:
         return 'WhatsApp', 'WhatsApp'
 
+    # Verifica se qualquer rede social está presente em qualquer parte do título, domínio ou URL
     if any(network in title for network in social_networks) or \
-       any(network in domain for network in social_domains) or \
-       any(network in url for network in social_domains):
+       any(network in domain for network in social_networks) or \
+       any(network in url for network in social_networks):
         classification = 'Rede Social'
         if 'facebook' in title or 'facebook.com' in domain or 'facebook.com' in url:
             subclassification = 'Facebook'
@@ -63,7 +69,7 @@ def classify_social_networks(title, domain, url):
             subclassification = 'Snapchat'
         elif 'reddit' in title or 'reddit.com' in domain or 'reddit.com' in url:
             subclassification = 'Reddit'
-        elif 'pinterest' in title or 'pinterest.com' in domain or 'pinterest.com' in url:
+        elif 'pinterest' in title or 'pinterest' in domain or 'pinterest' in url:  # Verifica se "pinterest" aparece em qualquer parte
             subclassification = 'Pinterest'
         elif 'tumblr' in title or 'tumblr.com' in domain or 'tumblr.com' in url:
             subclassification = 'Tumblr'
@@ -73,6 +79,8 @@ def classify_social_networks(title, domain, url):
             subclassification = None
         return classification, subclassification
     return None, None
+
+
 
 def classify_streaming_apps(title, domain, url):
     """
@@ -198,11 +206,18 @@ def classify_internal_systems(process, title):
 
 def classify_cerebro(title, domain, url):
     """
-    Classifica atividades relacionadas ao sistema Cérebro.
+    Classifica atividades relacionadas ao sistema Cérebro, verificando variações no domínio e URL.
     """
-    if 'cerebro' in title or 'cerebro.df.sebrae.com.br' in domain or 'cerebro.df.sebrae.com.br' in url:
+    # Normalizando todas as strings
+    title = normalize_text(title)
+    domain = normalize_text(domain)
+    url = normalize_text(url)
+
+    # Verificando presença de 'cerebro' em título, domínio ou URL
+    if 'cerebro' in title or 'cerebro' in domain or 'cerebro' in url:
         return 'Acessos Cerebro', 'Cerebro'
     return None, None
+
 
 def classify_pdf_viewer(title, url, process):
     """

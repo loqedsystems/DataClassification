@@ -280,12 +280,15 @@ def filter_by_user(data, usernames):
     Considera o formato 'NOME_DA_MAQUINA\\user_name' e faz o filtro somente pela parte do 'user_name'.
     Aceita múltiplos usernames separados por vírgula.
     """
+
     # Limpar e separar os usernames por vírgula, se múltiplos forem fornecidos
-    if isinstance(usernames, str):
-        usernames = [user.strip() for user in usernames.split(",")]
-    
-    # Separar o 'UserName' no DataFrame após a barra invertida (caso exista)
-    data['UserName'] = data['UserName'].apply(lambda x: x.split("\\")[-1].strip() if "\\" in x else x.strip())
+    if isinstance(usernames, str) and usernames.strip():  # Verifica se a string não está vazia
+        usernames = [user.strip().lower() for user in usernames.split(",")]
+    else:
+        usernames = []  # Se estiver vazio ou apenas espaços, definir como lista vazia
+
+    # Separar o 'UserName' no DataFrame após a barra invertida (caso exista) e converter para minúsculas
+    data['UserName'] = data['UserName'].apply(lambda x: x.split("\\")[-1].strip().lower() if "\\" in x else x.strip().lower())
 
     # Filtrar pelo nome de usuário na lista
     if usernames:
@@ -294,6 +297,8 @@ def filter_by_user(data, usernames):
         filtered_data = data  # Se não houver username, retornar todos os dados
 
     return filtered_data
+
+
 
 
 if __name__ == "__main__":

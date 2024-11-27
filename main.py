@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import os
 from openpyxl import Workbook
 from openpyxl.utils.exceptions import IllegalCharacterError
+from datetime import datetime
+
 
 def execute_query_with_retry(engine, query, retries=3, delay=5):
     """
@@ -170,12 +172,11 @@ def build_query(start_date=None, end_date=None):
             p.DomainName
         FROM utWinClient_UserWebActivity u
         LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
-        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
     """
 
     # Adicionar filtros de PartitionID se as datas forem fornecidas
     if start_partition and end_partition:
-        query += f" AND (u.[PartitionID] >= {start_partition} AND u.[PartitionID] <= {end_partition})"
+        query += f" WHERE u.[PartitionID] >= {start_partition} AND u.[PartitionID] <= {end_partition}"
 
     # Continuar a consulta com UNION
     query += """
@@ -197,12 +198,11 @@ def build_query(start_date=None, end_date=None):
             p.DomainName
         FROM utWinClient_UserAppActivity u
         LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
-        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
     """
 
     # Adicionar novamente filtros de PartitionID se as datas forem fornecidas
     if start_partition and end_partition:
-        query += f" AND (u.[PartitionID] >= {start_partition} AND u.[PartitionID] <= {end_partition})"
+        query += f" WHERE u.[PartitionID] >= {start_partition} AND u.[PartitionID] <= {end_partition}"
 
     # Fechar a query com a parte final da seleção e junções
     query += """
@@ -224,7 +224,6 @@ def build_query(start_date=None, end_date=None):
             p.DomainName
         FROM utWinServer_UserWebActivity u
         LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
-        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
 
         UNION ALL
 
@@ -244,7 +243,6 @@ def build_query(start_date=None, end_date=None):
             p.DomainName
         FROM utWinServer_UserAppActivity u
         LEFT JOIN [dbo].[utWin_UserNameDic] p ON u.UserId = p.DictionaryId
-        WHERE u.UTCActualSliceId BETWEEN 28752660 AND 28801619
     )
 
     SELECT
@@ -271,8 +269,8 @@ def build_query(start_date=None, end_date=None):
     JOIN CTE_ProcessDetails pd ON data.ProcessId = pd.DictionaryId
     LEFT JOIN [dbo].[utWin_UserNameDic] p ON p.DictionaryId = data.UserId;
     """
-
     return query
+
 
 def filter_by_user(data, usernames):
     """
@@ -288,7 +286,7 @@ def filter_by_user(data, usernames):
         usernames = []  # Se estiver vazio ou apenas espaços, definir como lista vazia
 
     # Separar o 'UserName' no DataFrame após a barra invertida (caso exista) e converter para minúsculas
-    data['UserName'] = data['UserName'].apply(lambda x: x.split("\\")[-1].strip().lower() if "\\" in x else x.strip().lower())
+    data['UserName'] = data['UserName'].apply(lambda x: x.split("\\")[-1].strip().lower() if isinstance(x, str) and "\\" in x else (x.strip().lower() if isinstance(x, str) else None))
 
     # Filtrar pelo nome de usuário na lista
     if usernames:
@@ -300,12 +298,27 @@ def filter_by_user(data, usernames):
 
 
 
+def get_date_input(prompt):
+    """
+    Solicita uma data do usuário e garante que esteja no formato correto (YYYY-MM-DD).
+    Retorna None se o usuário deixar o campo em branco.
+    """
+    while True:
+        date_str = input(prompt)
+        if date_str.strip() == "":  # Permite deixar em branco
+            return None
+        try:
+            # Tenta converter a data para o formato correto
+            date = datetime.strptime(date_str, "%Y-%m-%d")
+            return date_str  # Retorna a data como string no formato correto
+        except ValueError:
+            print("Data inválida! Por favor, insira no formato YYYY-MM-DD.")
 
 if __name__ == "__main__":
     # Solicitar nome(s) do(s) usuário(s) e intervalo de datas via input
     usernames = input("Digite o(s) nome(s) do(s) usuário(s) (separados por vírgula, ou deixe vazio para todos): ")
-    start_date = input("Digite a data inicial (YYYY-MM-DD, ou deixe vazio para todas): ")
-    end_date = input("Digite a data final (YYYY-MM-DD, ou deixe vazio para todas): ")
+    start_date = get_date_input("Digite a data inicial (YYYY-MM-DD, ou deixe vazio para todas): ")
+    end_date = get_date_input("Digite a data final (YYYY-MM-DD, ou deixe vazio para todas): ")
 
     # Configurações de conexão para SQL Server
     load_dotenv()
